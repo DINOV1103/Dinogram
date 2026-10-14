@@ -1,0 +1,139 @@
+name: DinoGram APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      abi:
+        description: "Telefon turi: arm64 = deyarli barcha zamonaviy telefonlar, armv7 = eski 32-bit telefonlar, afat = hammasi bitta faylda"
+        type: choice
+        options: [arm64, armv7, afat]
+        default: arm64
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - ".github/*.svg"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dinogram-build-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    # Pinned build environment: Telegram 9.6.x needs NDK r21 + CMake 3.10, which want an older distro.
+    container:
+      image: eclipse-temurin:17-jdk-jammy
+    env:
+      ANDROID_HOME: /opt/android-sdk
+      ANDROID_SDK_ROOT: /opt/android-sdk
+      FLAVOR: ${{ github.event.inputs.abi || 'arm64' }}
+
+    steps:
+      - name: Install system packages
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends git unzip curl ca-certificates python3 make bison ninja-build libncurses5 libtinfo5 >/dev/null
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check secrets
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_HASH: ${{ secrets.APP_HASH }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          missing=""
+          [ -z "$APP_ID" ] && missing="$missing APP_ID"
+          [ -z "$APP_HASH" ] && missing="$missing APP_HASH"
+          [ -z "$KEYSTORE_PASSWORD" ] && missing="$missing KEYSTORE_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::GitHub Secrets yetishmayapti:$missing  (Settings -> Secrets and variables -> Actions)"
+            exit 1
+          fi
+          if ! [[ "$APP_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::APP_ID faqat raqamlardan iborat bo'lishi kerak (my.telegram.org dagi api_id)"
+            exit 1
+          fi
+
+      - name: Cache Android SDK
+        uses: actions/cache@v4
+        with:
+          path: /opt/android-sdk
+          key: android-sdk-33-ndk21.4.7075529-cmake3.10.2-v1
+
+      - name: Install Android SDK
+        run: |
+          if [ ! -d "$ANDROID_HOME/ndk/21.4.7075529" ]; then
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            curl -sSL -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q /tmp/clt.zip -d "$ANDROID_HOME/cmdline-tools"
+            mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+            SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+            yes | "$SDKM" --licenses >/dev/null
+            "$SDKM" "platform-tools" "platforms;android-33" "build-tools;33.0.1" "ndk;21.4.7075529" "cmake;3.10.2.4988404" >/dev/null
+          fi
+          ls "$ANDROID_HOME"
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('**/*.gradle', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties') }}
+          restore-keys: gradle-
+
+      - name: Write API keys
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          APP_HASH: ${{ secrets.APP_HASH }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          {
+            echo "APP_ID = ${APP_ID}"
+            echo "APP_HASH = \"${APP_HASH}\""
+            echo "MAPS_V2_API = DINOGRAM_NO_MAPS_KEY"
+            echo "SIGNING_KEY_PASSWORD = ${KEYSTORE_PASSWORD}"
+            echo "SIGNING_KEY_ALIAS = dinogram"
+            echo "SIGNING_KEY_STORE_PASSWORD = ${KEYSTORE_PASSWORD}"
+          } > API_KEYS
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          TASK="assemble${FLAVOR^}Release"
+          echo "Running $TASK"
+          ./gradlew --no-daemon --stacktrace "$TASK"
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp TMessagesProj/build/outputs/apk/${FLAVOR}/release/*.apk out/
+          ls -la out
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DinoGram-${{ env.FLAVOR }}
+          path: out/*.apk
+          retention-days: 30
+
+      - name: Publish release (direct APK link for the phone)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: DinoGram build ${{ github.run_number }} (${{ env.FLAVOR }})
+          files: out/*.apk
+          body: |
+            DinoGram — AyuGram for Android asosida (Telegram 9.6.6).
+            Telefoningizga mos APK'ni yuklab oling va o'rnating.

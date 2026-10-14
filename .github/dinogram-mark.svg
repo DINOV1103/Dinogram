@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="DinoGram mark">
+  <!-- DinoGram mark: a chat bubble that is also a dinosaur.
+       Body = bubble, bubble tail = dino tail, three back plates, eye as a true hole (opposite winding). -->
+  <g transform="translate(16 -20)">
+    <path id="dino" fill="#FFFFFF" d="
+      M192 208 H320 A96 96 0 0 1 320 400 H192 A96 96 0 0 1 192 208 Z
+      M136 336 L216 392 Q152 440 64 440 Q120 416 136 336 Z
+      M140 236 L158 172 Q176 128 194 172 L212 236 Z
+      M204 236 L222 148 Q240 100 258 148 L276 236 Z
+      M268 236 L286 172 Q304 128 322 172 L340 236 Z
+      M382 280 A22 22 0 1 0 338 280 A22 22 0 1 0 382 280 Z"/>
+  </g>
+</svg>
