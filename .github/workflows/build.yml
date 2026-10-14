@@ -79,10 +79,16 @@ jobs:
             unzip -q /tmp/clt.zip -d "$ANDROID_HOME/cmdline-tools"
             mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
             SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-            yes | "$SDKM" --licenses >/dev/null
-            "$SDKM" "platform-tools" "platforms;android-33" "build-tools;33.0.1" "ndk;21.4.7075529" "cmake;3.10.2.4988404" >/dev/null
+            # 'yes' gets SIGPIPE once sdkmanager is done reading; don't let pipefail treat that as an error
+            set +o pipefail
+            yes | "$SDKM" --licenses > /tmp/licenses.log 2>&1
+            set -o pipefail
+            if ! "$SDKM" "platform-tools" "platforms;android-33" "build-tools;33.0.1" "ndk;21.4.7075529" "cmake;3.10.2.4988404" > /tmp/sdk.log 2>&1; then
+              .github/scripts/annotate-failure.sh "Android SDK install failed" /tmp/sdk.log
+              exit 1
+            fi
           fi
-          ls "$ANDROID_HOME"
+          ls "$ANDROID_HOME" "$ANDROID_HOME/ndk" "$ANDROID_HOME/cmake"
 
       - name: Cache Gradle
         uses: actions/cache@v4
@@ -113,7 +119,14 @@ jobs:
           chmod +x gradlew
           TASK="assemble${FLAVOR^}Release"
           echo "Running $TASK"
-          ./gradlew --no-daemon --stacktrace "$TASK"
+          set +e
+          ./gradlew --no-daemon --stacktrace "$TASK" 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            .github/scripts/annotate-failure.sh "Gradle build failed" build.log
+            exit "$status"
+          fi
 
       - name: Collect APK
         run: |
