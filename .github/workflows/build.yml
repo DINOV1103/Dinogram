@@ -90,13 +90,20 @@ jobs:
           fi
           ls "$ANDROID_HOME" "$ANDROID_HOME/ndk" "$ANDROID_HOME/cmake"
 
+      # hashFiles() can't be re-evaluated in the post step of a container job, so compute the key here
+      - name: Cache key
+        id: keys
+        run: |
+          sum=$(cat build.gradle TMessagesProj/build.gradle gradle.properties gradle/wrapper/gradle-wrapper.properties | sha256sum | cut -c1-16)
+          echo "gradle=gradle-$sum" >> "$GITHUB_OUTPUT"
+
       - name: Cache Gradle
         uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('**/*.gradle', 'gradle/wrapper/gradle-wrapper.properties', 'gradle.properties') }}
+          key: ${{ steps.keys.outputs.gradle }}
           restore-keys: gradle-
 
       - name: Write API keys
